@@ -149,6 +149,7 @@ def low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s, quantize_
         quantize_bit, elem_per_position,
         BLOCK_SIZE_K=K
     )
+    del x_temp
     return x
 
 
@@ -160,20 +161,23 @@ def torch_low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s, qua
         selected_index = torch.arange(q.shape[2] * i, q.shape[2] * (i + 1))
         x[:, :, selected_index] = ((q & mask) - 2 ** (quantize_bit - 1))
         q = q >> quantize_bit
+    s = s.unsqueeze(-2)
     return x * s + o + l @ r
 
 
 if __name__ == '__main__':
     M, R = 32, 16
     B = 1
+    quantize_bit = 4
+    element_num = 32 // quantize_bit
     l = torch.randn(M, R, device='cuda', dtype=torch.bfloat16)
     r = torch.randn(R, M, device='cuda', dtype=torch.bfloat16)
-    q = torch.randint(0, 114514, (B, M, M // 4), device='cuda', dtype=torch.uint32)
+    q = torch.randint(0, 114514, (B, M, M // element_num), device='cuda', dtype=torch.uint32)
     s = torch.zeros(B, M, device='cuda', dtype=torch.bfloat16) + 2
     o = torch.randn(B, M, M, device='cuda', dtype=torch.bfloat16)
-    x = low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s)
+    x = low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s, quantize_bit=quantize_bit)
     q = q.to(torch.int32)
-    x_base = torch_low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s)
+    x_base = torch_low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s, quantize_bit=quantize_bit)
     print(x - x_base)
     # get the sparse ratio
     x_diff = x - x_base
