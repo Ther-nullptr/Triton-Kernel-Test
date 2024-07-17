@@ -76,7 +76,7 @@ def low_rank_addition_fuse_decompression_dequantization_kernel(
     # x = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.uint32)
     # extract the quantized values
     for i in range(elem_per_position):
-        x_temp_ptrs_new = x_temp_ptrs + i
+        x_temp_ptrs_new = x_temp_ptrs + i * (BLOCK_SIZE_N // elem_per_position)
         element_fake_int = tl.math.uint2float_rn(q & mask)
         tl.store(x_temp_ptrs_new, element_fake_int)
         q >>= quantize_bit
@@ -97,6 +97,7 @@ def low_rank_addition_fuse_decompression_dequantization_kernel(
     x = x * s
     
     accumulator = tl.load(o_ptrs, mask=o_mask, other=0.0) # load the outliers
+    accumulator += x
     accumulator = accumulator.to(tl.float32)
     
     for k in range(0, tl.cdiv(K, BLOCK_SIZE_K)):
@@ -110,8 +111,8 @@ def low_rank_addition_fuse_decompression_dequantization_kernel(
         l_ptrs += BLOCK_SIZE_K * stride_lk
         r_ptrs += BLOCK_SIZE_K * stride_rk
         
-    x = accumulator.to(tl.bfloat16)
-    tl.store(x_ptrs, x, mask=x_mask)
+    y = accumulator.to(tl.bfloat16)
+    tl.store(x_ptrs, y, mask=x_mask)
     
     
 def low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s, quantize_bit=8, outlier=5.):
@@ -133,7 +134,7 @@ def low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s, quantize_
         triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']), B
     )
     x = torch.empty((B, M, N), device=l.device, dtype=torch.bfloat16)
-    x_temp = torch.empty((B, M, N), device=l.device, dtype=torch.uint32)
+    x_temp = torch.empty((B, M, N), device=l.device, dtype=torch.int32)
     
     low_rank_addition_fuse_decompression_dequantization_kernel[grid](
         l, r, x, x_temp, o, q, s,
@@ -151,8 +152,15 @@ def low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s, quantize_
     return x
 
 
-def torch_low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s):
-    return q.to(torch.bfloat16) * 2.0 + o + l @ r
+def torch_low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s, quantize_bit=8):
+    element_num = 32 // quantize_bit
+    x = torch.empty((q.shape[0], q.shape[1], q.shape[2] * element_num), device=q.device, dtype=torch.int32)
+    mask = (1 << quantize_bit) - 1
+    for i in range(element_num):
+        selected_index = torch.arange(q.shape[2] * i, q.shape[2] * (i + 1))
+        x[:, :, selected_index] = ((q & mask) - 2 ** (quantize_bit - 1))
+        q = q >> quantize_bit
+    return x * s + o + l @ r
 
 
 if __name__ == '__main__':
@@ -160,8 +168,13 @@ if __name__ == '__main__':
     B = 1
     l = torch.randn(M, R, device='cuda', dtype=torch.bfloat16)
     r = torch.randn(R, M, device='cuda', dtype=torch.bfloat16)
-    q = torch.zeros(B, M, M // 4, device='cuda', dtype=torch.uint32)
-    s = torch.zeros(B, M, device='cuda', dtype=torch.bfloat16) + 1
+    q = torch.randint(0, 114514, (B, M, M // 4), device='cuda', dtype=torch.uint32)
+    s = torch.zeros(B, M, device='cuda', dtype=torch.bfloat16) + 2
     o = torch.randn(B, M, M, device='cuda', dtype=torch.bfloat16)
     x = low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s)
-    print(x)
+    q = q.to(torch.int32)
+    x_base = torch_low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s)
+    print(x - x_base)
+    # get the sparse ratio
+    x_diff = x - x_base
+    print(torch.sum(x_diff == 0).item() / x_diff.numel())

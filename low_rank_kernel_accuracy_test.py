@@ -10,6 +10,7 @@ def naive_quantization_dequantization(l, r, x, s, quantize_bit=8, outlier=5.):
     o = x * outlier_mask
     x = x - o
     # step 2: compress the rest part
+    # s = s.unsqueeze(-2)
     q = torch.clamp(torch.round(x / s), min = -2 ** (quantize_bit-1), max = 2 ** (quantize_bit-1) - 1).to(torch.int32)
     
     x = q.to(torch.bfloat16) * s + o + l @ r
@@ -23,6 +24,8 @@ if __name__ == '__main__':
     x = torch.randn(B, M, M, device='cuda', dtype=torch.bfloat16) 
     x_copy = deepcopy(x)
     s = torch.zeros(B, M, device='cuda', dtype=torch.bfloat16) + 1
+    s[:, :20] = 1.2
+    s[:, 20:] = 1.5
 
     o, q = low_rank_addition_fuse_compression_quantization(l, r, x, s)
     x_decode = low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s)
