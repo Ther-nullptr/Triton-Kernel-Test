@@ -29,21 +29,20 @@ for fp8_inputs in [False]:
 def benchmark(M, provider, fp8_inputs):
     B = 4
     R = 16
+    quantize_bit = 2
     x = torch.randn((B, M, M), device="cuda", dtype=torch.bfloat16)
     l = torch.randn((M, R), device="cuda", dtype=torch.bfloat16)
     r = torch.randn((R, M), device="cuda", dtype=torch.bfloat16)
     s = torch.randn((B, M), device="cuda", dtype=torch.bfloat16) + 2
-    o = torch.empty((B, M, M), device=x.device, dtype=torch.bfloat16)
-    q = torch.empty((B, M, M // 4), device=x.device, dtype=torch.uint32)
     quantiles = [0.5, 0.2, 0.8]
     if provider == "cublas":
         ms, min_ms, max_ms = triton.testing.do_bench(lambda: torch_low_rank_addition(l, r, x), quantiles=quantiles)
     if provider == 'cublas-w-tail':
-        ms, min_ms, max_ms = triton.testing.do_bench(lambda: torch_low_rank_addition_fuse_compression_quantization(l, r, x, s), quantiles=quantiles)
+        ms, min_ms, max_ms = triton.testing.do_bench(lambda: torch_low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit), quantiles=quantiles)
     if provider == 'triton-w/o-tail':
         ms, min_ms, max_ms = triton.testing.do_bench(lambda: low_rank_addition(l, r, x), quantiles=quantiles)
     if provider == 'triton-w-tail':
-        ms, min_ms, max_ms = triton.testing.do_bench(lambda: low_rank_addition_fuse_compression_quantization(l, r, x, s), quantiles=quantiles)
+        ms, min_ms, max_ms = triton.testing.do_bench(lambda: low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit), quantiles=quantiles)
     perf = lambda ms: 2 * B * M * R * M * 1e-12 / (ms * 1e-3)
     return perf(ms), perf(max_ms), perf(min_ms)
 

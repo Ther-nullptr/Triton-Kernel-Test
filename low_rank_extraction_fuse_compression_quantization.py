@@ -87,7 +87,7 @@ def low_rank_addition_fuse_compression_quantization_kernel(
     q_ptrs = q_ptr + stride_qm * offs_qm[:, None] + stride_qn * offs_qn[None, :] + offs_b * stride_qb
     q_mask = (offs_b < B) & (offs_qm[:, None] < M) & (offs_qn[None, :] < N // elem_per_position)
     
-    q = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N // elem_per_position), dtype=tl.uint32)
+    q = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N // elem_per_position), dtype=tl.uint8)
     
     offs_sn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
     s_ptrs = s_ptr + stride_sn * offs_sn[None, :] + offs_b * stride_sb
@@ -109,7 +109,7 @@ def low_rank_addition_fuse_compression_quantization_kernel(
         x_slice_ptrs_new = x_slice_ptrs + i * (BLOCK_SIZE_N // elem_per_position)
         element_fake_int = tl.load(x_slice_ptrs_new, mask=x_slice_mask, other=0.0).to(tl.float32) 
         element_int = tl.math.float2uint_rn(element_fake_int)
-        q |= (element_int << (quantize_bit * i))
+        q |= (element_int << (quantize_bit * i)).to(tl.uint8)
     
     tl.store(o_ptrs, x_outliers, mask=o_mask) #! for debug only
     tl.store(q_ptrs, q, mask=q_mask)
@@ -131,9 +131,9 @@ def low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit=8, 
     grid = lambda META: (
         triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']), B
     )
-    elem_per_position = 32 // quantize_bit
+    elem_per_position = 8 // quantize_bit
     o = torch.empty((B, M, N), device=x.device, dtype=torch.bfloat16)
-    q = torch.empty((B, M, N // elem_per_position), device=x.device, dtype=torch.uint32)
+    q = torch.empty((B, M, N // elem_per_position), device=x.device, dtype=torch.uint8)
     low_rank_addition_fuse_compression_quantization_kernel[grid](
         l, r, x, o, q, s,
         B, M, N, K,
@@ -156,26 +156,27 @@ def torch_low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_b
     o = x * outlier_mask
     x = x - o
     s = s.unsqueeze(-2)
-    q = torch.clamp(torch.round(x / s), min = -2 ** (quantize_bit-1), max = 2 ** (quantize_bit-1) - 1).to(torch.int32) + 2 ** (quantize_bit - 1)
-    element_num = 32 // quantize_bit
+    q = torch.clamp(torch.round(x / s), min = -2 ** (quantize_bit-1), max = 2 ** (quantize_bit-1) - 1).to(torch.int16) + 2 ** (quantize_bit - 1)
+    element_num = 8 // quantize_bit
     
-    q_new = torch.empty(q.shape[0], q.shape[1], q.shape[2] // element_num, dtype=torch.int32).cuda()
+    q_new = torch.empty(q.shape[0], q.shape[1], q.shape[2] // element_num, dtype=torch.int8).cuda()
     
     for i in range(element_num):
         selected_index = torch.arange((q.shape[2] // element_num) * i, (q.shape[2] // element_num) * (i + 1))
         q_new |= (q[:, :, selected_index] << (quantize_bit * i))
     
-    q_new = q_new.to(torch.uint32)
+    q_new = q_new.to(torch.uint8)
     return o, q_new
 
 
 if __name__ == '__main__':
     M, R = 32, 16
     B = 2
+    quantize_bit = 8
     l = torch.randn(M, R, device='cuda', dtype=torch.bfloat16)
     r = torch.randn(R, M, device='cuda', dtype=torch.bfloat16)
     x = torch.randn(B, M, M, device='cuda', dtype=torch.bfloat16)
     s = torch.zeros(B, M, device='cuda', dtype=torch.bfloat16) + 1.2
-    o, q = low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit=2)
-    o_simple, q_simple = torch_low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit=2)
-    print(q.to(torch.int32) - q_simple.to(torch.int32))
+    o, q = low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit=quantize_bit)
+    o_simple, q_simple = torch_low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit=quantize_bit)
+    print(q.to(torch.int8) - q_simple.to(torch.int8))

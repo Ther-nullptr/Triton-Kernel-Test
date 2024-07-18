@@ -29,19 +29,19 @@ for fp8_inputs in [False]:
 def benchmark(M, provider, fp8_inputs):
     B = 4
     R = 16
-    quantize_bit = 8
-    element_num = 32 // quantize_bit
+    quantize_bit = 2
+    element_num = 8 // quantize_bit
     x = torch.randn((B, M, M), device="cuda", dtype=torch.bfloat16)
     l = torch.randn((M, R), device="cuda", dtype=torch.bfloat16)
     r = torch.randn((R, M), device="cuda", dtype=torch.bfloat16)
     s = torch.randn((B, M), device="cuda", dtype=torch.bfloat16) + 2
     o = torch.randn((B, M, M), device=x.device, dtype=torch.bfloat16)
-    q = torch.zeros((B, M, M // element_num), device=x.device, dtype=torch.uint32)
+    q = torch.zeros((B, M, M // element_num), device=x.device, dtype=torch.uint8)
     quantiles = [0.5, 0.2, 0.8]
     if provider == "cublas":
         ms, min_ms, max_ms = triton.testing.do_bench(lambda: torch_low_rank_addition(l, r, x), quantiles=quantiles)
     if provider == 'cublas-w-tail':
-        q = q.to(torch.int32)
+        q = q.to(torch.int8)
         ms, min_ms, max_ms = triton.testing.do_bench(lambda: torch_low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s, quantize_bit), quantiles=quantiles)
     if provider == 'triton-w/o-tail':
         ms, min_ms, max_ms = triton.testing.do_bench(lambda: low_rank_addition(l, r, x), quantiles=quantiles)
