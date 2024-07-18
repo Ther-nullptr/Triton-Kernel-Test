@@ -29,7 +29,7 @@ for fp8_inputs in [False]:
 def benchmark(M, provider, fp8_inputs):
     B = 4
     R = 16
-    quantize_bit = 2
+    quantize_bit = 1
     x = torch.randn((B, M, M), device="cuda", dtype=torch.bfloat16)
     l = torch.randn((M, R), device="cuda", dtype=torch.bfloat16)
     r = torch.randn((R, M), device="cuda", dtype=torch.bfloat16)
