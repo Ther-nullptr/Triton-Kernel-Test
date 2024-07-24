@@ -10,7 +10,7 @@ for fp8_inputs in [False]:
     configs.append(
         triton.testing.Benchmark(
             x_names=["M"],  # Argument names to use as an x-axis for the plot
-            x_vals=[256 * i for i in range(2, 100, 10)],  # Different possible values for `x_name`
+            x_vals=[256 * i for i in range(2, 80, 10)],  # Different possible values for `x_name`
             line_arg="provider",  # Argument name whose value corresponds to a different line in the plot
             # Possible values for `line_arg`
             # Don't compare to cublas for fp8 cases as torch.matmul doesn't support fp8 at the moment.
@@ -29,13 +29,15 @@ for fp8_inputs in [False]:
 def benchmark(M, provider, fp8_inputs):
     B = 4
     R = 16
-    quantize_bit = 1
+    quantize_bit = 2
     element_num = 8 // quantize_bit
     x = torch.randn((B, M, M), device="cuda", dtype=torch.bfloat16)
     l = torch.randn((M, R), device="cuda", dtype=torch.bfloat16)
     r = torch.randn((R, M), device="cuda", dtype=torch.bfloat16)
     s = torch.randn((B, M), device="cuda", dtype=torch.bfloat16) + 2
     o = torch.randn((B, M, M), device=x.device, dtype=torch.bfloat16)
+    o = o * (o > 1)
+    o = o.to_sparse()
     q = torch.zeros((B, M, M // element_num), device=x.device, dtype=torch.uint8)
     quantiles = [0.5, 0.2, 0.8]
     if provider == "cublas":

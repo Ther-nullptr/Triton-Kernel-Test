@@ -81,8 +81,8 @@ def low_rank_addition_fuse_decompression_dequantization_kernel(
         
     # dequantize
     offs_sn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
-    s_ptrs = s_ptr + stride_sn * offs_sn[None, :] + offs_b * stride_sb
-    s_mask = (offs_b < B) & (offs_sn[None, :] < N)
+    s_ptrs = s_ptr + stride_sn * offs_sn[None, :] 
+    s_mask = (offs_sn[None, :] < N)
     s = tl.load(s_ptrs, mask=s_mask, other=1.0)
     
     offs_x_temp_m = offs_xm
@@ -133,6 +133,7 @@ def low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s, quantize_
     )
     x = torch.empty((B, M, N), device=l.device, dtype=torch.bfloat16)
     x_temp = torch.empty((B, M, N), device=l.device, dtype=torch.uint8)
+    o = o.to_dense()
     
     low_rank_addition_fuse_decompression_dequantization_kernel[grid](
         l, r, x, x_temp, o, q, s,
@@ -152,6 +153,7 @@ def low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s, quantize_
 
 
 def torch_low_rank_addition_fuse_decompression_dequantization(l, r, q, o, s, quantize_bit=8):
+    o = o.to_dense()
     element_num = 8 // quantize_bit
     x = torch.empty((q.shape[0], q.shape[1], q.shape[2] * element_num), device=q.device, dtype=torch.int8)
     mask = (1 << quantize_bit) - 1

@@ -4,8 +4,8 @@ import triton.language as tl
 
 @triton.autotune(
     configs=[
-        triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 32, 'GROUP_SIZE_M': 4, }, num_stages=2, 
-                      num_warps=4),
+        triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 32, 'GROUP_SIZE_M': 4, }, num_stages=1, 
+                      num_warps=2),
     ],
     key=['M', 'N'],
 )
@@ -90,8 +90,8 @@ def low_rank_addition_fuse_compression_quantization_kernel(
     q = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N // elem_per_position), dtype=tl.uint8)
     
     offs_sn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
-    s_ptrs = s_ptr + stride_sn * offs_sn[None, :] + offs_b * stride_sb
-    s_mask = (offs_b < B) & (offs_sn[None, :] < N)
+    s_ptrs = s_ptr + stride_sn * offs_sn[None, :] 
+    s_mask = (offs_sn[None, :] < N)
     s = tl.load(s_ptrs, mask=s_mask, other=1.0)
     
     x = tl.math.round(x / s)
@@ -146,6 +146,7 @@ def low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit=8, 
         outlier, quantize_bit, elem_per_position,
         BLOCK_SIZE_K=K
     )
+    o = o.to_sparse()
     return o, q
 
 
@@ -166,6 +167,7 @@ def torch_low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_b
         q_new |= (q[:, :, selected_index] << (quantize_bit * i))
     
     q_new = q_new.to(torch.uint8)
+    o = o.to_sparse()
     return o, q_new
 
 
@@ -177,6 +179,6 @@ if __name__ == '__main__':
     r = torch.randn(R, M, device='cuda', dtype=torch.bfloat16)
     x = torch.randn(B, M, M, device='cuda', dtype=torch.bfloat16)
     s = torch.zeros(B, M, device='cuda', dtype=torch.bfloat16) + 1.2
-    o, q = low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit=quantize_bit)
-    o_simple, q_simple = torch_low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit=quantize_bit)
-    print(q.to(torch.int8) - q_simple.to(torch.int8))
+    o, q = low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit=quantize_bit, outlier=5)
+    # o_simple, q_simple = torch_low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit=quantize_bit)
+    # print(q.to(torch.int8) - q_simple.to(torch.int8))
