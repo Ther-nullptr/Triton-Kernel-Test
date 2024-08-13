@@ -111,7 +111,7 @@ def low_rank_addition_fuse_compression_quantization_kernel(
         element_int = tl.math.float2uint_rn(element_fake_int)
         q |= (element_int << (quantize_bit * i)).to(tl.uint8)
     
-    tl.store(o_ptrs, x_outliers, mask=o_mask) #! for debug only
+    tl.store(o_ptrs, x_outliers, mask=o_mask)
     tl.store(q_ptrs, q, mask=q_mask)
 
 
@@ -146,7 +146,7 @@ def low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit=8, 
         outlier, quantize_bit, elem_per_position,
         BLOCK_SIZE_K=K
     )
-    o = o.to_sparse()
+    # o = o.to_sparse()
     return o, q
 
 
