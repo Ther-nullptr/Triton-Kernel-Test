@@ -4,8 +4,8 @@ import triton.language as tl
 
 @triton.autotune(
     configs=[
-        triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 32, 'GROUP_SIZE_M': 4, }, num_stages=1, 
-                      num_warps=2),
+        triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 32, 'GROUP_SIZE_M': 4, }, num_stages=2, 
+                      num_warps=4),
     ],
     key=['M', 'N'],
 )
@@ -146,7 +146,7 @@ def low_rank_addition_fuse_compression_quantization(l, r, x, s, quantize_bit=8, 
         outlier, quantize_bit, elem_per_position,
         BLOCK_SIZE_K=K
     )
-    # o = o.to_sparse()
+    o = o.to_sparse()
     return o, q
 
 
