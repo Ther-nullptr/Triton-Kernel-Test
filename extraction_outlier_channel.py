@@ -18,7 +18,7 @@ def torch_extract_channel(x, channel_index):
     triton.testing.Benchmark(
         x_names=['M', 'N'],
         x_vals=[
-            512 * i for i in range(2, 33)
+            256 * i for i in range(2, 33)
         ],
         line_arg='provider',
         line_vals=['unstructrued', 'channel'],
