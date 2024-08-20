@@ -145,7 +145,7 @@ def triton_silu_backward_fuse_decompress_kernel(
     # extract the quantized values
     for i in range(elem_per_position):
         x_temp_ptrs_new = x_temp_ptrs + i * (BLOCK_SIZE_N // elem_per_position)
-        element_fake_int = tl.extra.cuda.libdevice.uint2float_rn((q & mask).to(tl.uint32))
+        element_fake_int = tl.math.uint2float_rn((q & mask).to(tl.uint32))
         tl.store(x_temp_ptrs_new, element_fake_int)
         q = (q >> quantize_bit).to(tl.uint8)
         

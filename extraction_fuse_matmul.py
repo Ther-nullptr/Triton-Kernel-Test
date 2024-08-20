@@ -197,7 +197,7 @@ def triton_matmul_decompress_kernel(
         # dequantize
         for i in range(elem_per_position):
             x_ptrs_i = x_ptrs + i * (BLOCK_SIZE_K // elem_per_position)
-            fake_int = tl.extra.cuda.libdevice.uint2float_rn((q & mask).to(tl.uint32))
+            fake_int = tl.math.uint2float_rn((q & mask).to(tl.uint32))
             tl.store(x_ptrs_i, fake_int)
             q = (q >> quantize_bit).to(tl.uint8)
             
