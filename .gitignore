@@ -168,3 +168,7 @@ outputs/
 task1/
 task2/
 task3/
+hadamard/
+silu_backward/
+matmul/
+extraction_outlier/

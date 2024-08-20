@@ -86,20 +86,20 @@ def get_autotune_config():
 )
 @triton.jit
 def matmul_kernel(
-        # Pointers to matrices
-        a_ptr, b_ptr, c_ptr,
-        # Matrix dimensions
-        M, N, K,
-        # The stride variables represent how much to increase the ptr by when moving by 1
-        # element in a particular dimension. E.g. `stride_am` is how much to increase `a_ptr`
-        # by to get the element one row down (A has M rows).
-        stride_am, stride_ak,  #
-        stride_bk, stride_bn,  #
-        stride_cm, stride_cn,
-        # Meta-parameters
-        BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,  #
-        GROUP_SIZE_M: tl.constexpr,  #
-        ACTIVATION: tl.constexpr  #
+    # Pointers to matrices
+    a_ptr, b_ptr, c_ptr,
+    # Matrix dimensions
+    M, N, K,
+    # The stride variables represent how much to increase the ptr by when moving by 1
+    # element in a particular dimension. E.g. `stride_am` is how much to increase `a_ptr`
+    # by to get the element one row down (A has M rows).
+    stride_am, stride_ak,  #
+    stride_bk, stride_bn,  #
+    stride_cm, stride_cn,
+    # Meta-parameters
+    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,  #
+    GROUP_SIZE_M: tl.constexpr,  #
+    ACTIVATION: tl.constexpr  #
 ):
     """Kernel for computing the matmul C = A x B.
     A has shape (M, K), B has shape (K, N) and C has shape (M, N)
