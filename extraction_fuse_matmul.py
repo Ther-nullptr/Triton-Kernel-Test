@@ -143,7 +143,7 @@ def triton_split_k_matmul(x, a):
 
 @triton.autotune(
     configs=[
-        triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, }, num_stages=2, num_warps=2), 
+        triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 32, 'GROUP_SIZE_M': 8, }, num_stages=1, num_warps=2), 
     ],
     key=['M', 'N', 'K'],
 )
@@ -197,7 +197,7 @@ def triton_matmul_decompress_kernel(
         # dequantize
         for i in range(elem_per_position):
             x_ptrs_i = x_ptrs + i * (BLOCK_SIZE_K // elem_per_position)
-            fake_int = tl.math.uint2float_rn((q & mask).to(tl.uint32))
+            fake_int = tl.extra.cuda.libdevice.uint2float_rn((q & mask).to(tl.uint32))
             tl.store(x_ptrs_i, fake_int)
             q = (q >> quantize_bit).to(tl.uint8)
             
@@ -251,8 +251,7 @@ def triton_matmul_decompress(q, l, r, s, y, quantize_bit=2):
 
 @triton.autotune(
     configs=[
-        triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 32, 'GROUP_SIZE_M': 8, }, num_stages=2, 
-                      num_warps=2), #! config: 1bit, 2; 2bit, 2; 4bit, 4; 8bit, 4
+        triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 32, 'GROUP_SIZE_M': 8, }, num_stages=4, num_warps=2), #! config: 1bit, 2; 2bit, 2; 4bit, 4; 8bit, 4
     ],
     key=['M', 'N'],
 )
@@ -316,7 +315,7 @@ def low_rank_addition_fuse_decompression_dequantization_kernel(
     # extract the quantized values
     for i in range(elem_per_position):
         x_temp_ptrs_new = x_temp_ptrs + i * (BLOCK_SIZE_N // elem_per_position)
-        element_fake_int = tl.math.uint2float_rn((q & mask).to(tl.uint32))
+        element_fake_int = tl.extra.cuda.libdevice.uint2float_rn((q & mask).to(tl.uint32))
         tl.store(x_temp_ptrs_new, element_fake_int)
         q = (q >> quantize_bit).to(tl.uint8)
         
@@ -413,11 +412,11 @@ print(f"o_triton_2: {o_triton_2}")
         x_vals=[256 * i for i in range(4, 32, 4)],
         line_arg='provider',  # Argument name whose value corresponds to a different line in the plot
         # Possible values for `line_arg`
-        line_vals=['torch', 'triton', 'triton-split', 'triton-decompress'],
+        line_vals=['torch', 'triton', 'triton-split', 'triton-fuse', 'triton-no-fuse'],
         # Label name for the lines
-        line_names=['torch', 'triton', 'triton-split', 'triton-decompress'],
+        line_names=['torch', 'triton', 'triton-split', 'triton-fuse', 'triton-no-fuse'],
         # Line styles
-        styles=[('green', '-'), ('blue', '-'), ('red', '-'), ('black', '-')],
+        styles=[('green', '-'), ('blue', '-'), ('red', '-'), ('black', '-'), ('purple', '-')],
         ylabel="TFLOPS",  # Label name for the y-axis
         plot_name="matmul-performance",  # Name for the plot, used also as a file name for saving the plot.
         args={},
@@ -443,8 +442,10 @@ def benchmark(M, N, provider):
         ms, min_ms, max_ms = triton.testing.do_bench(lambda: triton_batched_matmul(x, b), quantiles=quantiles)
     if provider == 'triton-split':
         ms, min_ms, max_ms = triton.testing.do_bench(lambda: triton_split_k_matmul(x, b), quantiles=quantiles)
-    if provider == 'triton-decompress':
+    if provider == 'triton-fuse':
         ms, min_ms, max_ms = triton.testing.do_bench(lambda: triton_matmul_decompress(q, l, r, s, b, quantize_bit), quantiles=quantiles)
+    if provider == 'triton-no-fuse':
+        ms, min_ms, max_ms = triton.testing.do_bench(lambda: triton_matmul_add_extraction(q, l, r, s, b, quantize_bit), quantiles=quantiles)
     perf = lambda ms: 2 * B * M * N * 1e-12 / (ms * 1e-3)
     return perf(ms), perf(max_ms), perf(min_ms)
 
