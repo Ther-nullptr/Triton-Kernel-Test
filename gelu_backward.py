@@ -60,9 +60,12 @@ def triton_gelu_backward_kernel(
     g = tl.load(g_ptrs, mask=g_mask)
     gamma = 0.7978845608028654 # math.sqrt(2 / math.pi)
     kappa = 0.044715
-    y = gamma * (x + kappa * x**3)
+    x_pow_2 = x * x
+    x_pow_3 = x_pow_2 * x
+    y = gamma * (x + kappa * x_pow_3)
     tanh_y = tl_math.tanh(y)
-    o = (0.5 * ((1 + tanh_y) + x * ((1 - tanh_y**2) * gamma * (1 + 3 * kappa * x**2))) * g)
+    tanh_y_pow_2 = tanh_y * tanh_y
+    o = (0.5 * ((1 + tanh_y) + x * ((1 - tanh_y_pow_2) * gamma * (1 + 3 * kappa * x_pow_2))) * g)
     
     tl.store(o_ptrs, o, mask=o_mask)
     
