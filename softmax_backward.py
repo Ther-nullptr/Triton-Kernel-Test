@@ -44,6 +44,7 @@ def triton_softmax_backward_kernel(
         
 def triton_softmax_backward(y, grad_y):    
     b, h, n, _ = y.shape
+    block_size_modified = triton.next_power_of_2(n)
     o = torch.empty_like(y)
     
     assert grad_y.shape == y.shape
@@ -55,11 +56,11 @@ def triton_softmax_backward(y, grad_y):
         y, grad_y, o, 
         y.stride(0), y.stride(1), y.stride(2), y.stride(3),
         b, h, n, n, 
-        BLOCK_SIZE_M=1, BLOCK_SIZE_N=n, GROUP_SIZE_M=1
+        BLOCK_SIZE_M=1, BLOCK_SIZE_N=block_size_modified, GROUP_SIZE_M=1
     )
     return o
 
-x = torch.randn(2, 2, 512, 512).to(torch.bfloat16).cuda()
+x = torch.randn(2, 2, 511, 511).to(torch.bfloat16).cuda()
 y = torch.softmax(x, dim=-1).to(torch.bfloat16)
 g = torch.randn_like(y).to(torch.bfloat16).cuda()
 o_torch = torch_softmax_backward(y, g)
@@ -91,7 +92,8 @@ else:
 )
 def benchmark(M, N, provider):
     B = 4
-    x = torch.randn(B, M, N, device='cuda', dtype=torch.bfloat16)
+    H = 32
+    x = torch.randn(B, H, M, N, device='cuda', dtype=torch.bfloat16)
     y = torch.softmax(x, dim=-1)
     g = torch.randn_like(y)
     
@@ -105,4 +107,4 @@ def benchmark(M, N, provider):
     return perf(ms), perf(max_ms), perf(min_ms)
 
 
-benchmark.run(print_data=True, show_plots=False, save_path='./softmax_backward')
+# benchmark.run(print_data=True, show_plots=False, save_path='./softmax_backward')
