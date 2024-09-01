@@ -1,11 +1,24 @@
 import torch
+import torch.nn.functional as F
 import triton
 import triton.language as tl
+from packaging.version import Version
+
+triton_version = triton.__version__
+if Version(triton_version) < Version("3.0.0"):
+    import triton.language.math as tl_math
+else:
+    import triton.language.extra.cuda.libdevice as tl_math
 
 
-def torch_silu_backward(x, grad_y):
-    x_sigmoid = torch.sigmoid(x)
-    return grad_y * (x_sigmoid * (1 + x * (1 - x_sigmoid)))
+def torch_gelu_backward(x, grad_y):
+    gamma = 0.7978845608028654 # math.sqrt(2 / math.pi)
+    kappa = 0.044715
+    y = gamma * (x + kappa * x**3)
+    tanh_y = F.tanh(y)
+    grad_input = (0.5 * ((1 + tanh_y) + x * ((1 - tanh_y**2) * gamma * (1 + 3 * kappa * x**2))) * grad_y)
+    
+    return grad_input
 
 
 @triton.autotune(
@@ -15,7 +28,7 @@ def torch_silu_backward(x, grad_y):
     key=['M', 'N'],
 )
 @triton.jit
-def triton_silu_backward_kernel(
+def triton_gelu_backward_kernel(
     x_ptr, g_ptr, o_ptr,
     B, M, N,
     stride_xb, stride_xm, stride_xn,
@@ -45,13 +58,16 @@ def triton_silu_backward_kernel(
     
     x = tl.load(x_ptrs, mask=x_mask)
     g = tl.load(g_ptrs, mask=g_mask)
-    x_sigmoid = tl.sigmoid(x.to(tl.float32)).to(tl.bfloat16)
-    o = g * (x_sigmoid * (1 + x * (1 - x_sigmoid)))
+    gamma = 0.7978845608028654 # math.sqrt(2 / math.pi)
+    kappa = 0.044715
+    y = gamma * (x + kappa * x**3)
+    tanh_y = tl_math.tanh(y)
+    o = (0.5 * ((1 + tanh_y) + x * ((1 - tanh_y**2) * gamma * (1 + 3 * kappa * x**2))) * g)
     
     tl.store(o_ptrs, o, mask=o_mask)
     
 
-def triton_silu_backward(x, g):
+def triton_gelu_backward(x, g):
     B, M, N = x.shape
     assert g.shape == x.shape
     
@@ -59,7 +75,7 @@ def triton_silu_backward(x, g):
     grid = lambda META: (
         triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']), B
     )
-    triton_silu_backward_kernel[grid](
+    triton_gelu_backward_kernel[grid](
         x, g, o,
         B, M, N,
         x.stride(0), x.stride(1), x.stride(2),
@@ -72,8 +88,8 @@ def triton_silu_backward(x, g):
 # test accuracy
 x = torch.randn(4, 1024, 1024, device='cuda', dtype=torch.bfloat16)
 g = torch.randn_like(x)
-o_torch = torch_silu_backward(x, g)
-o_triton = triton_silu_backward(x, g)
+o_torch = torch_gelu_backward(x, g)
+o_triton = triton_gelu_backward(x, g)
 
 if torch.allclose(o_torch, o_triton, rtol=1e-2, atol=1e-2):
     print('Accuracy test passed!')
@@ -108,12 +124,12 @@ def benchmark(M, N, provider):
     
     quantiles = [0.5, 0.2, 0.8]
     if provider == 'cublas':
-        ms, min_ms, max_ms = triton.testing.do_bench(lambda: torch_silu_backward(x, g), quantiles=quantiles)
+        ms, min_ms, max_ms = triton.testing.do_bench(lambda: torch_gelu_backward(x, g), quantiles=quantiles)
     else:
-        ms, min_ms, max_ms = triton.testing.do_bench(lambda: triton_silu_backward(x, g), quantiles=quantiles)
+        ms, min_ms, max_ms = triton.testing.do_bench(lambda: triton_gelu_backward(x, g), quantiles=quantiles)
         
     perf = lambda ms: 2 * B * M * N * 1e-12 / (ms * 1e-3)
     return perf(ms), perf(max_ms), perf(min_ms)
         
 
-benchmark.run(print_data=True, show_plots=False, save_path='./silu_backward')
+benchmark.run(print_data=True, show_plots=False, save_path='./gelu_backward')
